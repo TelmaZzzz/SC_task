@@ -4,15 +4,27 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from utils import *
-cnt = 0
 
-def save(model, path):
-    global cnt
-    path += "_{}.pkl".format(cnt)
-    cnt += 1
-    if os.path.exists(path):
-        os.remove(path)
-        logging.info("model remove success!!!")
+
+def judge(score_save, score):
+    if len(score_save) < 5:
+        return -1
+    minn = score_save[0]
+    pos = 0
+    for idx, item in enumerate(score_save):
+        if minn > item:
+           pos = idx
+           minn = item
+    if minn > score:
+        return -2
+    return pos 
+
+
+def save(model, path, score):
+    path += "_{}.pkl".format("{:.4f}".format(score))
+    # if os.path.exists(path):
+    #     os.remove(path)
+    #     logging.info("model remove success!!!")
     logging.info("Save model")
     torch.save(model, path)
 
@@ -21,11 +33,11 @@ def real_res(logit, T=True):
     x = logit.tolist()
     res = []
     for item in x:
-        if item < 0.8:
+        if item < 0.5:
             res.append(0)
-        elif item < 1.8:
+        elif item < 1.5:
             res.append(1)
-        elif item < 2.8:
+        elif item < 2.5:
             res.append(2)
         else:
             res.append(3)
@@ -84,11 +96,13 @@ def eval(valid_iter, model, args):
 
 def train(train_iter, valid_iter, model, args):
     logging.info("Start training...")
-    optimizer = torch.optim.Adam(model.parameters(), args.learning_rate)
+    optimizer = torch.optim.Adam(model.parameters(), args.learning_rate, weight_decay=0.0001)
     need_eval = 1
     rmse_max = 0
     LOSS = nn.MSELoss()
+    score_save = []
     for step in range(args.epoch):
+        logging.info("Start train epoch :{}".format(step))
         loss_sum = 0
         loss_s_sum = 0
         model.train()
@@ -107,15 +121,33 @@ def train(train_iter, valid_iter, model, args):
                 loss_s_sum = 0
                 with torch.no_grad():
                     rmse_n = eval(valid_iter, model, args)
-                    if rmse_n > rmse_max:
-                        rmse_max = rmse_n
-                        save(model, args.model_save_path)
+                    pos = judge(score_save, rmse_n)
+                    if pos == -1:
+                        score_save.append(rmse_n)
+                        save(model, args.model_save_path, rmse_n)
+                    elif pos != -2:
+                        path = args.model_save_path + "_{}.pkl".format("{:.4f}".format(score_save[pos]))
+                        if os.path.exists(path):
+                            os.remove(path)
+                            logging.info("model remove success!!!")
+                        score_save = score_save[:pos] + score_save[pos+1:]
+                        score_save.append(rmse_n)
+                        save(model, args.model_save_path, rmse_n)
                 model.train()
             need_eval += 1
         # logging.info("loss:{:.4f}".format(loss_sum / len(train_iter)))
         with torch.no_grad():
             rmse_n = eval(valid_iter, model, args)
-            if rmse_n > rmse_max:
-                rmse_max = rmse_n
-                save(model, args.model_save_path)
+            pos = judge(score_save, rmse_n)
+            if pos == -1:
+                score_save.append(rmse_n)
+                save(model, args.model_save_path, rmse_n)
+            elif pos != -2:
+                path = args.model_save_path + "_{}.pkl".format("{:.4f}".format(score_save[pos]))
+                if os.path.exists(path):
+                    os.remove(path)
+                    logging.info("model remove success!!!")
+                score_save = score_save[:pos] + score_save[pos+1:]
+                score_save.append(rmse_n)
+                save(model, args.model_save_path, rmse_n)
     logging.info("Finished Training!!!")

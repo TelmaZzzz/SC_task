@@ -9,31 +9,40 @@ from train import *
 import logging
 import numpy as np
 import csv
+import copy
+import random
 logging.getLogger().setLevel(logging.INFO)
-
+random.seed(19980917)
+torch.manual_seed(19980917) #为CPU设置种子用于生成随机数，以使得结果是确定的
+torch.cuda.manual_seed(19980917) #为当前GPU设置随机种子
 
 class Example(object):
     def __init__(self, content, character, emotions=0, emotions_type=0, id=None):
         self.content = content
         self.character = character
         self.emotions = emotions
-        self.list = ["小红","小亮","小明","小刚","小刘","小张","小李","小赵","小王","小白"]
+        self.list = ["小红","小亮","小明","小刚","小刘","小张","小李","小赵","小王","小白","小冯","小马","小叶"]
         self.emotions_type = emotions_type
         self.id = id
     def rebuild(self):
         mp = dict()
         cnt = 0
-        self.new_content = ""
-        for idx, item in enumerate(self.content):
-            self.new_content += item
-            if item.isdigit():
-                if self.content[idx - 1].islower():
-                    ch = self.content[idx-1]+item
-                    if mp.get(ch, None) is None:
-                        mp[ch] = cnt
-                        cnt += 1
-                    self.new_content = self.new_content[:-2] + self.list[mp[ch]]
-        self.new_character = "此时"+self.list[mp.get(self.character, 0)]+"的表情是"
+        need = False
+        if need:
+            self.new_content = ""
+            for idx, item in enumerate(self.content):
+                self.new_content += item
+                if item.isdigit():
+                    if self.content[idx - 1].islower():
+                        ch = self.content[idx-1]+item
+                        if mp.get(ch, None) is None:
+                            mp[ch] = cnt
+                            cnt += 1
+                        self.new_content = self.new_content[:-2] + self.list[mp[ch]]
+            self.new_character = "此时"+self.list[mp.get(self.character, 0)]+"的表情是"
+        else:
+            self.new_content = self.content
+            self.new_character = "此时" + self.character + "的表情是"
         if self.emotions_type == 0:
             self.new_character += "充满爱意的。"
         elif self.emotions_type == 1:
@@ -48,10 +57,53 @@ class Example(object):
             self.new_character += "伤心的。"
         self.emotions = self.emotions / 3
 
+    def add_up(self, up_content):
+        self.content = up_content + self.content
+    
+    def get_emotion(self):
+        self.emotions = int(self.emotions.split(",")[self.emotions_type])
+
     def out(self):
         debug("content", self.content)
         debug("character", self.character)
         debug("emotions", self.emotions)
+
+
+class Story(object):
+    def __init__(self, id):
+        self.id = id
+        self.content = dict()
+        self.examples = dict()
+
+    def add_example(self, id, example):
+        self.examples[id] = example
+
+    def rebuild(self):
+        examples = sorted(self.examples.items(), key=lambda x:x[0])
+        pre = ""
+        cnt = 0
+        mp = dict()
+        for item in examples:
+            if item[1].content != pre:
+                self.content[cnt] = item[1].content
+                mp[item[0]] = cnt
+                cnt += 1
+            mp[item[0]]=cnt-1
+            pre = item[1].content
+        Examples = []
+        for item in examples:
+            if item[1].character is None:
+                continue
+            add_item = copy.deepcopy(item[1])
+            pos = mp[item[0]]
+            for i in range(1, 4):
+                up_content = self.content.get(pos-i, "")
+                add_item.add_up(up_content)
+            add_item.get_emotion()
+            add_item.rebuild()
+            Examples.append(add_item)
+            # debug("content", add_item.new_content)
+        return Examples
 
 
 def remake_data(data):
@@ -63,19 +115,54 @@ def remake_data(data):
             mp[item.emotions].append(item)
     num = 0
     for k, v in mp.items():
-        if k != 0:
-            num += len(v)
-    num = num
+        if k == 0:
+            num = len(v) // 4
     debug("num", num)
     res_data = []
     for k, v in mp.items():
         debug("k", k)
         debug("v", len(v))
-        if k != 0:
+        if k == 1:
             res_data += v
         else:
-            res_data += v[:num]
+            res_data += v * (num // len(v) + 1)
+    debug("res_data len", len(res_data))
     return res_data
+
+
+def get_example(storys):
+    Examples = []
+    for story in storys:
+        Examples.extend(story.rebuild())
+    return Examples
+
+
+def read_file_up(path, args):
+    file = read_from_file(path)
+    Storys = dict()
+    for idx, line in enumerate(file):
+        if idx == 0:
+            continue
+        item = line.strip().split("\t")
+        if len(item) == 4:
+            id, content, character, emotion = item[0], item[1], item[2], item[3]
+        else:
+            id, content, character, emotion = item[0], item[1], None, None
+        id_split = id.split("_")
+        story_id, example_id = str(id_split[0]) + "_" + str(id_split[1]), int(id_split[-1])
+        if Storys.get(story_id, None) is None:
+            Storys[story_id] = Story(story_id)
+        now_storys = Storys[story_id]
+        now_storys.add_example(example_id, Example(content, character, emotion, args.emotions_type))
+    raw_data = []
+    for _, v in Storys.items():
+        raw_data.append(v)
+    random.shuffle(raw_data)
+    train_story = raw_data[:int(len(raw_data)*0.95)]
+    valid_story = raw_data[int(len(raw_data)*0.95):]
+    train_data = get_example(train_story)
+    valid_data = get_example(valid_story)
+    return train_data, valid_data
 
 
 def read_file(path, args):
@@ -96,13 +183,19 @@ def read_file(path, args):
 
 def main(args):
     logging.info("Start prepare data...")
-    train_data = read_file(args.train_path, args)
-    valid_data = train_data[int(len(train_data)*0.95):]
-    train_data = train_data[:int(len(train_data)*0.95)]
-    train_data = remake_data(train_data)
+    if args.have_up:
+        train_data, valid_data = read_file_up(args.train_path, args)
+        train_data = remake_data(train_data)
+    else:
+        train_data = read_file(args.train_path, args)
+        valid_data = train_data[int(len(train_data)*0.95):]
+        train_data = train_data[:int(len(train_data)*0.95)]
+        train_data = remake_data(train_data)
     # _ = remake_data(train_data)
     tokenizer = BertTokenizer.from_pretrained(args.pre_train_name)
+    debug("yes",1)
     train_sen = torch.LongTensor([bert_concat_tokenizer(item.new_content, item.new_character, tokenizer, args.fix_length)[0] for item in train_data])
+    debug("yes",2)
     train_pad = torch.LongTensor([bert_concat_tokenizer(item.new_content, item.new_character, tokenizer, args.fix_length)[1] for item in train_data])
     train_label = torch.FloatTensor([item.emotions for item in train_data])
     valid_sen = torch.LongTensor([bert_concat_tokenizer(item.new_content, item.new_character, tokenizer, args.fix_length)[0] for item in valid_data])
@@ -115,6 +208,60 @@ def main(args):
     model = BERT(args).cuda()
     logging.info("len: {}".format(len(train_iter)))
     train(train_iter, valid_iter, model, args)
+
+
+def predict_up_main(args):
+    file = read_from_file(args.test_path)
+    ans_mp = dict()
+    ans_list = []
+    predict_list = []
+    Storys = dict()
+    cnt = 0
+    for idx, line in enumerate(file):
+        if idx == 0:
+            continue
+        item = line.strip().split("\t")
+        if len(item) == 4:
+            id, content, character, emotion = item[0], item[1], item[2], item[3]
+            ans_mp[id] = []
+        else:
+            id, content, character, emotion = item[0], item[1], None, None
+            ans_mp[id] = [0,0,0,0,0,0]
+        ans_list.append(id)
+        predict_list.append(id)
+        id_split = id.split("_")
+        story_id, example_id = str(id_split[0]) + "_" + str(id_split[1]), int(id_split[-1])
+        if Storys.get(story_id, None) is None:
+            Storys[story_id] = Story(story_id)
+        now_storys = Storys[story_id]
+        now_storys.add_example(example_id, Example(content, character, emotion, args.emotions_type, id=cnt))
+        cnt += 1
+    raw_data = []
+    for _, v in Storys.items():
+        raw_data.append(v)
+    
+    Examples = get_example(raw_data)
+    tokenizer = BertTokenizer.from_pretrained(args.pre_train_name)
+    test_sen = torch.LongTensor([bert_concat_tokenizer(item.new_content, item.new_character, tokenizer, args.fix_length)[0] for item in Examples])
+    test_pad = torch.LongTensor([bert_concat_tokenizer(item.new_content, item.new_character, tokenizer, args.fix_length)[1] for item in Examples])
+    train_id = torch.LongTensor([item.id for item in Examples])
+    test_dataset = torch.utils.data.TensorDataset(test_sen, test_pad, train_id)
+    test_iter = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size)
+    model_list = [args.model_0, args.model_1, args.model_2, args.model_3, args.model_4, args.model_5]
+    for idx, model_path in enumerate(model_list):
+        logging.info("start predict model_{}".format(idx))
+        model = torch.load(model_path).cuda()
+        res = predict(test_iter, model, args)
+        for item in res:
+            if idx == 0:
+                ans_mp[predict_list[int(item[1])]].append(0)
+            else:
+                ans_mp[predict_list[int(item[1])]].append(item[0])
+    with open(args.predict_save_path, "w", newline="") as f:
+        tsv_w = csv.writer(f, delimiter="\t")
+        tsv_w.writerow(["id", "emotion"])
+        for id in ans_list:
+            tsv_w.writerow([id, list2str(ans_mp[id])])
 
 
 def predict_main(args):
@@ -173,6 +320,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--eval_step", type=int, default=100)
     parser.add_argument("--model_save_dir", type=str, default="/Users10/lyzhang/opt/tiger/SC_task/model")
+    parser.add_argument("--have_up", action="store_true")
     parser.add_argument("--predict", action="store_true")
     parser.add_argument("--predict_save_path", type=str)
     parser.add_argument("--model_0", type=str)

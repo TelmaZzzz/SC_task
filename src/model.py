@@ -5,6 +5,11 @@ from transformers import BertModel
 from utils import *
 
 class BERT(nn.Module):
+    def _init_normal(self, m):
+        if type(m) == nn.Linear:
+            nn.init.uniform_(m.weight, a=-0.001, b=0.001)
+            nn.init.zeros_(m.bias)
+
     def __init__(self, args):
         super(BERT, self).__init__()
         # with torch.no_grad():
@@ -21,7 +26,9 @@ class BERT(nn.Module):
             nn.Dropout(args.dropout),
             nn.Linear(args.fc2_dim, 1)
         )
+        # self._FC.apply(self._init_normal)
         self._F = nn.Linear(768, 1)
+        # self._F.apply(self._init_normal)
 
     def forward(self, sen, pad):
         # output = self._FC(self._bert(sen)[1])

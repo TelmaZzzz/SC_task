@@ -3,13 +3,13 @@ import logging
 
 
 def bert_concat_tokenizer(sen1, sen2, tokenizer, fix_length):
+    if len(sen1) > 500:
+        sen1 = sen1[-500:]
     sen1_ids = tokenizer.encode(sen1, add_special_tokens=False)
     sen2_ids = tokenizer.encode(sen2, add_special_tokens=False)
-    while len(sen1_ids) + len(sen2_ids) > fix_length - 3:
-        if len(sen1_ids) > len(sen2_ids):
-            sen1_ids.pop()
-        else:
-            sen2_ids.pop()
+    if len(sen1_ids) + len(sen2_ids) > fix_length -3:
+        need = fix_length -3 - len(sen2_ids)
+        sen1_ids = sen1_ids[-need:]
     sen_ids = [101] + sen1_ids + [102] + sen2_ids + [102]
     padding = [1] * len(sen_ids) 
     sen_ids = sen_ids + [0] * (fix_length - len(sen_ids))
@@ -32,6 +32,12 @@ def read_from_tsv(path):
     return tsv
 
 
+def read_from_file(path):
+    with open(path, "r", encoding="utf-8") as f:
+        files = f.readlines()
+    return files
+
+
 def d2s(dt, time=False):
     if time is False:
         return dt.strftime("%Y_%m_%d")
@@ -49,3 +55,7 @@ def list2str(list):
         res+=str(item)
         res+=","
     return res[:-1]
+
+
+def shuffle_list(list):
+    pass
