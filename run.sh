@@ -8,7 +8,7 @@ python src/main.py \
 --fc2_dim=32 \
 --dropout=0.1 \
 --learning_rate=0.0003 \
---emotions_type=0 \
+--emotions_type=6 \
 --batch_size=8 \
 --have_up \
 --eval_step=1000 \

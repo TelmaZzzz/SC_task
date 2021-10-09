@@ -29,18 +29,28 @@ def save(model, path, score):
     torch.save(model, path)
 
 
+def judge_type(x):
+    if x < 0.5:
+        return 0
+    elif x < 1.5:
+        return 1
+    elif x < 2.5:
+        return 2
+    else:
+        return 3
+
+
 def real_res(logit, T=True):
     x = logit.tolist()
     res = []
     for item in x:
-        if item < 0.5:
-            res.append(0)
-        elif item < 1.5:
-            res.append(1)
-        elif item < 2.5:
-            res.append(2)
-        else:
-            res.append(3)
+        if type(item) is list:
+            rres = []
+            for it in item:
+                rres.append(judge_type(it))
+            res.append(rres)
+            continue
+        res.append(judge_type(it))
     if T:
         return torch.Tensor(res)
     else:
@@ -57,7 +67,8 @@ def predict(test_iter, model, args):
     for sen, pad, id in test_iter:
         # debug("sen", sen)
         logit = model(sen.cuda(), pad.cuda())
-        logit = logit.cpu().reshape(id.shape)
+        logit = logit.cpu()
+        # debug("logit", logit.cpu())
         logit = real_res(logit * 3, T=False)
         ids += id.tolist()
         ans += logit
@@ -73,17 +84,23 @@ def eval(valid_iter, model, args):
     mse_sum = 0
     total = 0
     LOSS = nn.MSELoss()
+    cls = False
     for sen, pad, label in valid_iter:
         # debug("sen", sen)
         logit = model(sen.cuda(), pad.cuda())
-        logit = logit.cpu().reshape(label.shape)
-        logit = real_res(logit * 3)
-        # logging.debug(logit.cpu())
-        # logging.debug(torch.max(logit.cpu(), 1)[1].view(label.size()))
-        debug("logit", logit)
-        debug("label", label * 3)
-        mse = LOSS(logit, label * 3)
-        debug("mse", mse)
+        if cls:
+            logit = torch.max(logit.cpu(), 1)[1].view(label.size())
+            mse = LOSS(1.0*logit, 1.0*label)
+        else:
+            logit = logit.cpu().reshape(label.shape)
+            logit = real_res(logit * 3).view(-1)
+            label = (label * 3).view(-1)
+            # logging.debug(logit.cpu())
+            # logging.debug(torch.max(logit.cpu(), 1)[1].view(label.size()))
+            debug("logit", logit)
+            debug("label", label * 3)
+            mse = LOSS(logit, label)
+            debug("mse", mse)
         mse_sum += mse * label.size(0)
         total += label.size(0)
     rmse = torch.sqrt(mse_sum / total)
@@ -96,9 +113,15 @@ def eval(valid_iter, model, args):
 
 def train(train_iter, valid_iter, model, args):
     logging.info("Start training...")
-    optimizer = torch.optim.Adam(model.parameters(), args.learning_rate, weight_decay=0.0001)
+    optimizer_grouped_parameters = [
+        {'params': [p for n, p in model.named_parameters() if 'bert' not in n]}, 
+        {'params': [p for n, p in model.named_parameters() if 'bert' in n], 'lr': args.learning_rate * 0.01}
+    ]
+
+    optimizer = torch.optim.Adam(optimizer_grouped_parameters, args.learning_rate, weight_decay=0.0001)
     need_eval = 1
     rmse_max = 0
+    cls = False
     LOSS = nn.MSELoss()
     score_save = []
     for step in range(args.epoch):
@@ -108,7 +131,17 @@ def train(train_iter, valid_iter, model, args):
         model.train()
         for sen, pad, label in train_iter:
             logit = model(sen.cuda(), pad.cuda())
-            loss = LOSS(logit.cpu().reshape(label.shape), label)
+            debug("logit size", logit.cpu().size())
+            debug("label size", label.size())
+            if cls:
+                try:
+                    loss = F.cross_entropy(logit.cpu(), label.squeeze(-1))
+                except:
+                    optimizer.zero_grad()
+                    optimizer.step()
+                    continue
+            else:
+                loss = LOSS(logit.cpu().reshape(label.shape), label)
             # loss_sum += loss.item()
             # debug("train_logit", logit.cpu())
             # debug("train_label", label)

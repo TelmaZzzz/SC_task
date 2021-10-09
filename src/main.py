@@ -11,7 +11,7 @@ import numpy as np
 import csv
 import copy
 import random
-logging.getLogger().setLevel(logging.INFO)
+logging.getLogger().setLevel(logging.DEBUG)
 random.seed(19980917)
 torch.manual_seed(19980917) #为CPU设置种子用于生成随机数，以使得结果是确定的
 torch.cuda.manual_seed(19980917) #为当前GPU设置随机种子
@@ -24,6 +24,8 @@ class Example(object):
         self.list = ["小红","小亮","小明","小刚","小刘","小张","小李","小赵","小王","小白","小冯","小马","小叶"]
         self.emotions_type = emotions_type
         self.id = id
+        self.up_content = ""
+
     def rebuild(self):
         mp = dict()
         cnt = 0
@@ -55,13 +57,21 @@ class Example(object):
             self.new_character += "恐惧的。"
         elif self.emotions_type == 5:
             self.new_character += "伤心的。"
-        self.emotions = self.emotions / 3
+        else:
+            self.new_character += "？"
+        cls = False
+        if cls is False:
+            # self.emotions = self.emotions / 3
+            self.emotions = [item / 3 for item in self.emotions]
 
     def add_up(self, up_content):
+        self.up_content = self.up_content + up_content
         self.content = up_content + self.content
     
     def get_emotion(self):
-        self.emotions = int(self.emotions.split(",")[self.emotions_type])
+        self.emotions = self.emotions.split(",")
+        self.emotions = [int(item) for item in self.emotions]
+        # self.emotions = int(self.emotions.split(",")[self.emotions_type])
 
     def out(self):
         debug("content", self.content)
@@ -106,6 +116,26 @@ class Story(object):
         return Examples
 
 
+class MyDataset(torch.utils.data.Dataset):
+    def __init__(self, Examples, tokenizer):
+        self.label = []
+        self.sen = []
+        self.pad = []
+        self.sen_id = []
+        self.build(Examples, tokenizer)
+    
+    def __getitem__(self, idx):
+        return self.sen[idx], self.sen_id[idx], self.pad[idx], self.label[idx]
+
+    def __len__(self):
+        return len(self.label)
+
+    def build(self, Examples, tokenizer):
+        for item in Examples:
+            self.label.append(torch.FloatTensor(item.emotions))
+            # sen, pad, sen_id = bert_concat_id_tokenize(item.)
+
+
 def remake_data(data):
     mp = dict()
     for item in data:
@@ -135,6 +165,16 @@ def get_example(storys):
     for story in storys:
         Examples.extend(story.rebuild())
     return Examples
+
+
+def rebuild_example(Examples, emotions_type):
+    re_Examples = []
+    for item in Examples:
+        item.emotions_type = emotions_type
+        item.rebuild()
+        re_Examples.append(item)
+    debug("example", re_Examples[-1].new_character)
+    return re_Examples
 
 
 def read_file_up(path, args):
@@ -183,24 +223,33 @@ def read_file(path, args):
 
 def main(args):
     logging.info("Start prepare data...")
+    cls = False
     if args.have_up:
         train_data, valid_data = read_file_up(args.train_path, args)
-        train_data = remake_data(train_data)
+        # train_data = remake_data(train_data)
     else:
         train_data = read_file(args.train_path, args)
         valid_data = train_data[int(len(train_data)*0.95):]
         train_data = train_data[:int(len(train_data)*0.95)]
-        train_data = remake_data(train_data)
+        # train_data = remake_data(train_data)
     # _ = remake_data(train_data)
     tokenizer = BertTokenizer.from_pretrained(args.pre_train_name)
     debug("yes",1)
-    train_sen = torch.LongTensor([bert_concat_tokenizer(item.new_content, item.new_character, tokenizer, args.fix_length)[0] for item in train_data])
+    train_sen = torch.LongTensor([bert_concat_tokenizer(item.new_content + item.new_character, tokenizer, args.fix_length)[0] for item in train_data])
     debug("yes",2)
     train_pad = torch.LongTensor([bert_concat_tokenizer(item.new_content, item.new_character, tokenizer, args.fix_length)[1] for item in train_data])
-    train_label = torch.FloatTensor([item.emotions for item in train_data])
+    if cls:
+        train_label = torch.LongTensor([item.emotions for item in train_data])
+    else:
+        train_label = torch.FloatTensor([item.emotions for item in train_data])
     valid_sen = torch.LongTensor([bert_concat_tokenizer(item.new_content, item.new_character, tokenizer, args.fix_length)[0] for item in valid_data])
     valid_pad = torch.LongTensor([bert_concat_tokenizer(item.new_content, item.new_character, tokenizer, args.fix_length)[1] for item in valid_data])
-    valid_label = torch.FloatTensor([item.emotions for item in valid_data])
+    if cls:
+        valid_label = torch.LongTensor([item.emotions for item in valid_data])
+    else:
+        valid_label = torch.FloatTensor([item.emotions for item in valid_data])
+    
+    # train_up_sen = torch.LongTensor([])
     train_dataset = torch.utils.data.TensorDataset(train_sen, train_pad, train_label)
     valid_dataset = torch.utils.data.TensorDataset(valid_sen, valid_pad, valid_label)
     train_iter = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
@@ -221,11 +270,11 @@ def predict_up_main(args):
         if idx == 0:
             continue
         item = line.strip().split("\t")
-        if len(item) == 4:
-            id, content, character, emotion = item[0], item[1], item[2], item[3]
+        if len(item) == 3:
+            id, content, character = item[0], item[1], item[2]
             ans_mp[id] = []
         else:
-            id, content, character, emotion = item[0], item[1], None, None
+            id, content, character = item[0], item[1], None
             ans_mp[id] = [0,0,0,0,0,0]
         ans_list.append(id)
         predict_list.append(id)
@@ -234,29 +283,45 @@ def predict_up_main(args):
         if Storys.get(story_id, None) is None:
             Storys[story_id] = Story(story_id)
         now_storys = Storys[story_id]
-        now_storys.add_example(example_id, Example(content, character, emotion, args.emotions_type, id=cnt))
+        now_storys.add_example(example_id, Example(content, character, "0", emotions_type=0, id=cnt))
         cnt += 1
     raw_data = []
     for _, v in Storys.items():
         raw_data.append(v)
-    
+    debug("raw_data len", len(raw_data))
     Examples = get_example(raw_data)
-    tokenizer = BertTokenizer.from_pretrained(args.pre_train_name)
-    test_sen = torch.LongTensor([bert_concat_tokenizer(item.new_content, item.new_character, tokenizer, args.fix_length)[0] for item in Examples])
-    test_pad = torch.LongTensor([bert_concat_tokenizer(item.new_content, item.new_character, tokenizer, args.fix_length)[1] for item in Examples])
-    train_id = torch.LongTensor([item.id for item in Examples])
-    test_dataset = torch.utils.data.TensorDataset(test_sen, test_pad, train_id)
-    test_iter = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size)
-    model_list = [args.model_0, args.model_1, args.model_2, args.model_3, args.model_4, args.model_5]
-    for idx, model_path in enumerate(model_list):
-        logging.info("start predict model_{}".format(idx))
-        model = torch.load(model_path).cuda()
+    debug("Examples len", len(Examples))
+    all = True
+    if all:
+        model = torch.load(args.model_all).cuda()
+        Examples = rebuild_example(Examples, 6)
+        tokenizer = BertTokenizer.from_pretrained(args.pre_train_name)
+        test_sen = torch.LongTensor([bert_concat_tokenizer(item.new_content, item.new_character, tokenizer, args.fix_length)[0] for item in Examples])
+        test_pad = torch.LongTensor([bert_concat_tokenizer(item.new_content, item.new_character, tokenizer, args.fix_length)[1] for item in Examples])
+        train_id = torch.LongTensor([item.id for item in Examples])
+        test_dataset = torch.utils.data.TensorDataset(test_sen, test_pad, train_id)
+        test_iter = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size)
         res = predict(test_iter, model, args)
         for item in res:
-            if idx == 0:
-                ans_mp[predict_list[int(item[1])]].append(0)
-            else:
-                ans_mp[predict_list[int(item[1])]].append(item[0])
+            ans_mp[predict_list[int(item[1])]] = item[0]
+    else:
+        model_list = [args.model_0, args.model_1, args.model_2, args.model_3, args.model_4, args.model_5]
+        for idx, model_path in enumerate(model_list):
+            logging.info("start predict model_{}".format(idx))
+            Examples = rebuild_example(Examples, idx)
+            tokenizer = BertTokenizer.from_pretrained(args.pre_train_name)
+            test_sen = torch.LongTensor([bert_concat_tokenizer(item.new_content, item.new_character, tokenizer, args.fix_length)[0] for item in Examples])
+            test_pad = torch.LongTensor([bert_concat_tokenizer(item.new_content, item.new_character, tokenizer, args.fix_length)[1] for item in Examples])
+            train_id = torch.LongTensor([item.id for item in Examples])
+            test_dataset = torch.utils.data.TensorDataset(test_sen, test_pad, train_id)
+            test_iter = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size)
+            model = torch.load(model_path).cuda()
+            res = predict(test_iter, model, args)
+            for item in res:
+                if idx == -1:
+                    ans_mp[predict_list[int(item[1])]].append(0)
+                else:
+                    ans_mp[predict_list[int(item[1])]].append(item[0])
     with open(args.predict_save_path, "w", newline="") as f:
         tsv_w = csv.writer(f, delimiter="\t")
         tsv_w.writerow(["id", "emotion"])
@@ -329,10 +394,12 @@ if __name__ == "__main__":
     parser.add_argument("--model_3", type=str)
     parser.add_argument("--model_4", type=str)
     parser.add_argument("--model_5", type=str)
+    parser.add_argument("--model_all", type=str)
 
     args = parser.parse_args()
+    logging.info("learning_rate:{}".format(args.learning_rate))
     if args.predict:
-        predict_main(args)
+        predict_up_main(args)
     else:
         args.model_save_path = "/".join([args.model_save_dir, str(args.emotions_type) + "_" + d2s(datetime.datetime.now(), time=True)])
         main(args)
