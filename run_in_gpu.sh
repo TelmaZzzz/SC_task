@@ -1,7 +1,7 @@
 #!/bin/sh
 source ~/.bashrc
 source activate telma
-TYPE=150
+TYPE=75
 MODE_SUB="model4"
 
 python src/main.py \
@@ -15,6 +15,6 @@ python src/main.py \
 --eval_step=200 \
 --emotions_type=$TYPE \
 --have_up \
---fix_length=150 \
+--fix_length=75 \
 --batch_size=32 \
 # > log/train.log 2>&1 &

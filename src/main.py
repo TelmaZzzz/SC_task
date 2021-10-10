@@ -235,7 +235,7 @@ def main(args):
     # _ = remake_data(train_data)
     tokenizer = BertTokenizer.from_pretrained(args.pre_train_name)
     debug("yes",1)
-    train_sen = torch.LongTensor([bert_concat_tokenizer(item.new_content + item.new_character, tokenizer, args.fix_length)[0] for item in train_data])
+    train_sen = torch.LongTensor([bert_concat_tokenizer(item.new_content, item.new_character, tokenizer, args.fix_length)[0] for item in train_data])
     debug("yes",2)
     train_pad = torch.LongTensor([bert_concat_tokenizer(item.new_content, item.new_character, tokenizer, args.fix_length)[1] for item in train_data])
     if cls:

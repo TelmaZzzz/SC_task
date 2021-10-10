@@ -33,7 +33,7 @@ class BERT(nn.Module):
     def forward(self, sen, pad):
         # output = self._FC(self._bert(sen)[1])
         # output = self._FC(self._bert(sen, return_dict=False)[1])
-        x = self._bert(input_ids=sen, attention_mask=pad, return_dict=False)[0][:,0,:]
+        x = self._bert(input_ids=sen, attention_mask=pad, return_dict=False)[1]
         # debug("x", x.size())
         # debug("x", x)
         output = self._FC(x)
