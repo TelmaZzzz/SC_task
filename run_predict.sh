@@ -13,11 +13,24 @@
 # --predict_save_path="$HOME/opt/tiger/SC_task/output/ans_6.tsv" \
 # > log/predict_0.log 2>&1 &
 
+PROJUECT="$HOME/opt/tiger/SC_task"
+
 python src/main.py \
 --predict \
 --test_path="$HOME/Datasets/test_dataset.tsv" \
---batch_size=8 \
---model_all="$HOME/opt/tiger/SC_task/model/model4/100_2021_10_09_14_56_0.6810.pkl" \
---predict_save_path="$HOME/opt/tiger/SC_task/output/ans_7.tsv" \
---fix_length=100 \
+--batch_size=4 \
+--model_0="$HOME/opt/tiger/SC_task/model/model5/505_2021_10_13_15_52_KFID_0_0.6891.pkl" \
+--model_1="$HOME/opt/tiger/SC_task/model/model5/505_2021_10_13_15_52_KFID_0_KFID_1_0.6939.pkl" \
+--model_2="$HOME/opt/tiger/SC_task/model/model5/505_2021_10_13_15_52_KFID_0_KFID_1_KFID_2_0.7027.pkl" \
+--model_3="$HOME/opt/tiger/SC_task/model/model5/505_2021_10_13_15_52_KFID_0_KFID_1_KFID_2_KFID_3_0.6761.pkl" \
+--model_4="$HOME/opt/tiger/SC_task/model/model5/505_2021_10_13_15_52_KFID_0_KFID_1_KFID_2_KFID_3_KFID_4_0.6932.pkl" \
+--model_5="$HOME/opt/tiger/SC_task/model/model5/505_2021_10_13_15_52_KFID_0_KFID_1_KFID_2_KFID_3_KFID_4_KFID_5_0.6780.pkl" \
+--model_6="$HOME/opt/tiger/SC_task/model/model5/505_2021_10_13_15_52_KFID_0_KFID_1_KFID_2_KFID_3_KFID_4_KFID_5_KFID_6_0.6859.pkl" \
+--model_7="$HOME/opt/tiger/SC_task/model/model5/505_2021_10_13_15_52_KFID_0_KFID_1_KFID_2_KFID_3_KFID_4_KFID_5_KFID_6_KFID_7_0.6699.pkl" \
+--model_8="$HOME/opt/tiger/SC_task/model/505_2021_10_14_12_31_KFID_0_0.6804.pkl" \
+--model_9="$HOME/opt/tiger/SC_task/model/505_2021_10_14_14_03_KFID_0_0.6878.pkl" \
+--model_all="$HOME/opt/tiger/SC_task/model/model8/506_2021_10_15_20_34_0.6827.pkl" \
+--predict_save_path="$HOME/opt/tiger/SC_task/output/ans_13.tsv" \
+--fix_length=500 \
+--fix_length_lstm=100 \
 > log/predict.log 2>&1 &
